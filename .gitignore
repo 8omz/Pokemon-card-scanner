@@ -1,0 +1,26 @@
+# Ignore all raw and annotated data
+data/raw/
+data/annotated/
+data/qa/
+data/*/*.jpg
+data/*/*.png
+
+# Ignore Google Drive temporary sync folders
+.tmp.*
+*.tmp
+
+# Ignore Python caches and environment files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+
+# Ignore IDE / OS metadata
+.vscode/
+.idea/
+.DS_Store
+
+# Ignore virtual environments (if you make one)
+venv/
+env/
