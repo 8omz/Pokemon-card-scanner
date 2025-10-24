@@ -1,4 +1,8 @@
 import cv2
+import tempfile
+import os
+import datetime
+
 # configuration and constants 
 # paths
 dataset_csv_path="data/manifests/dataset.csv"
@@ -68,6 +72,12 @@ def read_metadata(path):
             photo = {
                 "image_id":split[0],
                 "image_path":split[1],
+                "device":split[2],
+                "set_code":split[3],
+                "set_number":split[4],
+                "variant":split[5],
+                "angle":split[6],
+                "distance_cm":split[7],
                 "TL_x":int(split[8]) if split[8] else None,"TL_y":int(split[9]) if split[9] else None,
                 "TR_x":int(split[10]) if split[10] else None,"TR_y":int(split[11]) if split[11] else None,
                 "BR_x":int(split[12]) if split[12] else None,"BR_y":int(split[13]) if split[13] else None,
@@ -100,4 +110,56 @@ def get_row(table,idx):
     return table[idx]
     
 photo_table = load_manifest(dataset_csv_path)
-print(find_unannotated_rows(photo_table))
+# expects four_corners to be a list of tuples [(x1,y1),(x2,y2),(x3,y3),(x4,y4)]
+def write_corners(table,idx:int,four_corners:list):
+    photo = table[idx]
+    photo["TL_x"] = four_corners[0][0]
+    photo["TL_y"] = four_corners[0][1]
+    photo["TR_x"] = four_corners[1][0]
+    photo["TR_y"] = four_corners[1][1]
+    photo["BR_x"] = four_corners[2][0]
+    photo["BR_y"] = four_corners[2][1]
+    photo["BL_x"] = four_corners[3][0]
+    photo["BL_y"] = four_corners[3][1]
+    
+    
+    
+write_corners(photo_table,0,[(None,None),(None,None),(None,None),(None,None)])
+def save_manifest(table,path):
+    temp = tempfile.NamedTemporaryFile(dir="data/manifests/", delete=False)
+    count = 0
+    temp.close()
+    with open(temp.name,"w") as file:
+        file.write("image_id,image_path,device,set_code,set_number,variant,angle,distance_cm,corner_tl_x,corner_tl_y,corner_tr_x,corner_tr_y,corner_br_x,corner_br_y,corner_bl_x,corner_bl_y\n")
+        for photo in table:
+            string = f'{photo["image_id"]},{photo["image_path"]},phone,{photo["set_code"]},{photo["set_number"]},{photo["variant"]},{photo["angle"]},{photo["distance_cm"]},{photo["TL_x"] if photo["TL_x"] is not None else ""},{photo["TL_y"] if photo["TL_y"] is not None else ""},{photo["TR_x"] if photo["TR_x"] is not None else ""},{photo["TR_y"] if photo["TR_y"] is not None else ""},{photo["BR_x"] if photo["BR_x"] is not None else ""},{photo["BR_y"] if photo["BR_y"] is not None else ""},{photo["BL_x"] if photo["BL_x"] is not None else ""},{photo["BL_y"] if photo["BL_y"] is not None else ""}\n'
+            file.write(string)
+            count += 1
+            
+    print(f"Wrote {count} entries to  temp manifest...")
+    try:
+        os.rename(temp.name,path)
+        print(f"Renamed new manifest to dataset.csv.tmp...")
+    except:
+        os.remove(path)
+        os.rename(temp.name,path)
+        print("Replaced old manifest with new manifest...")
+        pass
+    print(f"Manifest saved successfully — {count} records written to {path}")
+
+def append_log(image_id,status,reason=None):
+    file_exists = os.path.exists(annotation_log_path)
+    need_header = False
+    if not file_exists or (file_exists and os.path.getsize(annotation_log_path)) == 0:
+        need_header = True
+    if need_header:
+          with open(annotation_log_path,"a") as file:
+              file.write("TIMESTAMP,image_id,status,reason\n")
+    with open(annotation_log_path,"a") as file:
+        
+        current_time = datetime.datetime.now().isoformat()
+        if status == "annotated":
+            file.write(f"{current_time},{image_id},{status}\n")
+        else:
+            file.write(f"{current_time},{image_id},unannotated,{reason}\n")
+    
