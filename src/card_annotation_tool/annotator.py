@@ -158,8 +158,27 @@ def append_log(image_id,status,reason=None):
     with open(annotation_log_path,"a") as file:
         
         current_time = datetime.datetime.now().isoformat()
-        if status == "annotated":
+        if status == "ANNOTATED":
             file.write(f"{current_time},{image_id},{status}\n")
         else:
-            file.write(f"{current_time},{image_id},unannotated,{reason}\n")
+            file.write(f"{current_time},{image_id},{status},{reason}\n")
     
+
+
+# Image I/O & Scaling
+def read_image(image_id,image_path):
+
+    try:
+        cv2.imread(image_path)
+    except Exception as e:
+        append_log(image_id,"READ_IMAGE_ERROR",reason=f"Error during reading: {e}")
+        return None
+    if cv2.imread(image_path) is None:
+        append_log(image_id, "READ_IMAGE_ERROR", reason=f"Image exists but could not be decoded by OpenCV.")
+        return None
+    else:
+        append_log(image_id,"IMAGE_READ",reason=f"Image Read sucessfully")
+
+        
+read_image(photo_table[0]["image_id"],photo_table[0]["image_path"])
+read_image(photo_table[1]["image_id"],"hi")
