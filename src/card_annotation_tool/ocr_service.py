@@ -46,9 +46,18 @@ def preprocess_image(image):
     # ret, thresh = cv2.threshold(contrast, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     # return thresh
     
+    # Bilateral Filter (Noise Reduction while keeping edges)
+    # d=9, sigmaColor=75, sigmaSpace=75
+    contrast = cv2.bilateralFilter(contrast, 9, 75, 75)
+    
+    # Add Padding (Breathing room for OCR)
+    # 5px white border
+    contrast = cv2.copyMakeBorder(contrast, 5, 5, 5, 5, cv2.BORDER_CONSTANT, value=[255, 255, 255])
+    
     # Convert back to BGR for PaddleOCR which expects 3 channels
     contrast_bgr = cv2.cvtColor(contrast, cv2.COLOR_GRAY2BGR)
     return contrast_bgr
+
 
 
 def clean_card_number(text):
@@ -78,8 +87,16 @@ def get_text_from_roi(roi_crop, is_number=False):
     processed_img = preprocess_image(roi_crop)
     
     # Run PaddleOCR
-    # kwargs failing in this version, trying default
-    result = ocr.ocr(processed_img)
+    # Optimize: det=False, cls=False to skip detection and angle class if crop is good.
+    # Note: ocr.ocr() might not support det=False directly in some versions via kwargs if it calls predict.
+    # But usually ocr.ocr(img, det=False, cls=False) is supported.
+    # Let's try passing them. Valid args: det=True/False, rec=True/False, cls=True/False
+    try:
+        result = ocr.ocr(processed_img, det=False, cls=False)
+    except TypeError:
+         # Fallback if specific version issues
+         result = ocr.ocr(processed_img)
+
     # print(f"DEBUG Result: {result}", flush=True)
     # import sys; sys.exit(0)
     
@@ -96,17 +113,27 @@ def get_text_from_roi(roi_crop, is_number=False):
              return full_text
              
         # Old PaddleOCR Structure (List of lists)
-        elif isinstance(res, list):
+        if isinstance(res, list):
             texts = []
             for line in res:
-                 if len(line) >= 2 and isinstance(line[1], (list, tuple)):
-                     text_content = line[1][0]
+                 # line structure: [text, confidence] when det=False
+                 if len(line) >= 2:
+                     text_content = line[0]
+                     confidence = line[1]
+                     
+                     # Confidence Filtering
+                     if confidence < 0.90:
+                         print(f"Warning: Low confidence ({confidence:.2f}) for '{text_content}' - [FALLBACK TRIGGER]")
+                         # You might want to return None or empty string to trigger fallback
+                         # For now we just log it.
+                         
                      texts.append(text_content)
             
             full_text = " ".join(texts)
             if is_number:
                 return clean_card_number(full_text)
             return full_text
+
             
     return ""
 
