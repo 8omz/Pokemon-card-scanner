@@ -22,6 +22,7 @@ The project is built as a modular pipeline where data flows through specialized 
 
 *   **Golden Master**: `data/manifests/dataset.csv`
     *   The source of truth for file paths and verified corner coordinates.
+    *   **Raw Images**: [Google Drive Folder](https://drive.google.com/drive/folders/1CeDqJJAuWPVTpOQ87DI8RhH4RQ_SUgi4?usp=drive_link)
 *   **Pipeline Output**: `data/pipeline_output/pipeline_results.csv`
     *   The results of the batch run, containing extracted data and confidence flags.
 
