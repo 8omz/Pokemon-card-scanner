@@ -140,6 +140,8 @@ def get_text_from_roi(roi_crop, is_number=False):
             
     return ""
 
+import time
+
 def test_ocr_service():
     """
     Test OCR on the roi_samples directory.
@@ -153,17 +155,31 @@ def test_ocr_service():
     headers = glob.glob(os.path.join(samples_dir, "*_name_header_crop.jpg"))
     numbers = glob.glob(os.path.join(samples_dir, "*_card_number_crop.jpg"))
     
+    start_time = time.time()
+    count = 0
+    
     print("\n--- Name Headers ---")
     for img_path in headers:
         img = cv2.imread(img_path)
         text = get_text_from_roi(img)
         print(f"{os.path.basename(img_path)} -> '{text}'")
+        count += 1
         
     print("\n--- Card Numbers ---")
     for img_path in numbers:
         img = cv2.imread(img_path)
         text = get_text_from_roi(img, is_number=True)
         print(f"{os.path.basename(img_path)} -> '{text}'")
+        count += 1
+        
+    end_time = time.time()
+    total_time = end_time - start_time
+    avg_time = (total_time / count) * 1000 if count > 0 else 0
+    
+    print(f"\nCompleted in {total_time:.4f} seconds.")
+    print(f"Processed {count} ROIs.")
+    print(f"Average time per ROI: {avg_time:.2f} ms")
+
 
 if __name__ == "__main__":
     test_ocr_service()
