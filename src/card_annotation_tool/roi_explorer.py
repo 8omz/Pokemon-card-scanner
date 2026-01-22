@@ -16,7 +16,7 @@ except ImportError:
 # Constants
 # Standard ROI definitions for 600x840 card
 ROI_DEFINITIONS = {
-    "name_header": (20, 30, 400, 80),      # OCR: Pokemon Name (Tightened to exclude HP)
+    "name_header": (90, 30, 400, 80),      # OCR: Pokemon Name (Tightened to exclude HP)
     "set_icon": (480, 760, 580, 810),      # Template: Set Icon
     "card_number": (30, 800, 190, 840),    # OCR: Card Number (e.g. 015/198)
     "art_window": (50, 100, 550, 450)      # Hash: Art Window
@@ -25,41 +25,59 @@ ROI_DEFINITIONS = {
 INPUT_DIR = os.path.join(project_root, "data", "annotated", "phone")
 OUTPUT_DIR = os.path.join(project_root, "data", "roi_samples")
 
-def extract_rois(image):
+def get_roi_crops(image):
     """
-    Extracts ROIs from a 600x840 image.
-    Returns a dictionary {feature_name: crop_image}
+    Extracts ROIs from the input image and returns them as a dictionary of numpy arrays.
+    
+    Args:
+        image (numpy.ndarray): The input image (expected 600x840).
+        
+    Returns:
+        dict: A dictionary mapping ROI names to cropped image arrays.
     """
-    rois = {}
+    crops = {}
+    if image is None:
+        return crops
+        
     h, w = image.shape[:2]
     
-    # Sanity check dimensions if strictly required, or just proceed
-    # Standard is 600x840.
-    
-    for feature, (x1, y1, x2, y2) in ROI_DEFINITIONS.items():
-        # Ensure coordinates are within bounds
+    for roi_name, (x1, y1, x2, y2) in ROI_DEFINITIONS.items():
+        # Ensure coordinates are within image bounds
         x1 = max(0, min(x1, w))
         y1 = max(0, min(y1, h))
         x2 = max(0, min(x2, w))
         y2 = max(0, min(y2, h))
         
-        crop = image[y1:y2, x1:x2]
-        rois[feature] = crop
+        # Crop
+        roi_crop = image[y1:y2, x1:x2]
+        crops[roi_name] = roi_crop
         
-    return rois
+    return crops
 
-def save_rois(rois, output_dir, image_id):
+def save_roi_crops(crops, output_dir, prefix):
     """
-    Saves extracted ROIs to output_dir.
+    Saves a dictionary of ROI crops to disk.
+    
+    Args:
+        crops (dict): Dictionary of ROI names to image arrays.
+        output_dir (str): Directory to save images.
+        prefix (str): Prefix for filenames.
     """
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
         
-    for feature, crop in rois.items():
-        filename = f"{image_id}_{feature}_crop.jpg"
-        path = os.path.join(output_dir, filename)
-        cv2.imwrite(path, crop)
-        print(f"Saved {feature} to {path}")
+    for roi_name, crop in crops.items():
+        filename = f"{prefix}_{roi_name}_crop.jpg"
+        save_path = os.path.join(output_dir, filename)
+        cv2.imwrite(save_path, crop)
+        print(f"Saved {roi_name} to {save_path}")
+
+def extract_rois(image, output_dir, prefix):
+    """
+    Wrapper for backward compatibility. Extracts and saves ROIs.
+    """
+    crops = get_roi_crops(image)
+    save_roi_crops(crops, output_dir, prefix)
 
 def process_sample():
     """
@@ -84,8 +102,7 @@ def process_sample():
         print("Failed to load image.")
         return
         
-    rois = extract_rois(image)
-    save_rois(rois, OUTPUT_DIR, image_id)
+    extract_rois(image, OUTPUT_DIR, image_id)
     print("ROI extraction complete.")
 
 if __name__ == "__main__":
