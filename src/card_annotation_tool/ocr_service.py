@@ -19,7 +19,12 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # show_log=False reduces console spam
 # Disable mkldnn to avoid windows internal error
 # os.environ["FLAGS_use_mkldnn"] = "0" # Moved to top
-ocr = PaddleOCR(use_textline_orientation=True, lang='en', enable_mkldnn=False)
+# Init does not support det=False in this version.
+# Switch to PP-OCRv4 to force Mobile models (default v5 uses Server Det which is slow).
+ocr = PaddleOCR(use_textline_orientation=True, lang='en', enable_mkldnn=False, ocr_version='PP-OCRv4')
+
+
+
 
 
 
@@ -91,13 +96,16 @@ def get_text_from_roi(roi_crop, is_number=False):
     
     # Run PaddleOCR
     # Optimize: det=False, cls=False to skip detection and angle class if crop is good.
-    # Updated to use predict() to avoid deprecation warning.
-    # det=False causing TypeError in this version, using standard predict.
+    # Run PaddleOCR
+    # Optimize: det=False is NOT supported in PaddleOCR v3.3.3 wrapper.
+    # Fallback to standard predict() but using Mobile models via init config.
     try:
         result = ocr.predict(processed_img)
     except TypeError:
          # Fallback just in case
          result = ocr.ocr(processed_img)
+
+
 
 
     # print(f"DEBUG Result: {result}", flush=True)
