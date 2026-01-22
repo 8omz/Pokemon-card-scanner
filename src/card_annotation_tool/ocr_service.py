@@ -1,5 +1,7 @@
 import os
 os.environ["FLAGS_use_mkldnn"] = "0"
+os.environ["DISABLE_MODEL_SOURCE_CHECK"] = "True"
+
 from paddleocr import PaddleOCR
 import cv2
 import os
@@ -17,7 +19,8 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # show_log=False reduces console spam
 # Disable mkldnn to avoid windows internal error
 # os.environ["FLAGS_use_mkldnn"] = "0" # Moved to top
-ocr = PaddleOCR(use_angle_cls=True, lang='en', enable_mkldnn=False)
+ocr = PaddleOCR(use_textline_orientation=True, lang='en', enable_mkldnn=False)
+
 
 
 
@@ -88,14 +91,14 @@ def get_text_from_roi(roi_crop, is_number=False):
     
     # Run PaddleOCR
     # Optimize: det=False, cls=False to skip detection and angle class if crop is good.
-    # Note: ocr.ocr() might not support det=False directly in some versions via kwargs if it calls predict.
-    # But usually ocr.ocr(img, det=False, cls=False) is supported.
-    # Let's try passing them. Valid args: det=True/False, rec=True/False, cls=True/False
+    # Updated to use predict() to avoid deprecation warning.
+    # det=False causing TypeError in this version, using standard predict.
     try:
-        result = ocr.ocr(processed_img, det=False, cls=False)
+        result = ocr.predict(processed_img)
     except TypeError:
-         # Fallback if specific version issues
+         # Fallback just in case
          result = ocr.ocr(processed_img)
+
 
     # print(f"DEBUG Result: {result}", flush=True)
     # import sys; sys.exit(0)
