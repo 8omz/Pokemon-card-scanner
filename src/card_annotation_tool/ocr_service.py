@@ -1,165 +1,150 @@
 import os
+import cv2
+import numpy as np
+import re
+import time
+import glob
+
+# Optimize environment variables for speed
 os.environ["FLAGS_use_mkldnn"] = "0"
 os.environ["DISABLE_MODEL_SOURCE_CHECK"] = "True"
 
 from paddleocr import PaddleOCR
-import cv2
-import os
-import sys
-import re
-import numpy as np
-import glob
 
-# Add directory to path if needed (though usually running as script or module)
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+class PokemonCardOCR:
+    _instance = None
 
-# Initialize PaddleOCR
-# use_angle_cls=True helps if cards are slightly rotated
-# lang='en' uses the English model
-# show_log=False reduces console spam
-# Disable mkldnn to avoid windows internal error
-# os.environ["FLAGS_use_mkldnn"] = "0" # Moved to top
-# Init does not support det=False in this version.
-# Switch to PP-OCRv4 to force Mobile models (default v5 uses Server Det which is slow).
-ocr = PaddleOCR(use_textline_orientation=True, lang='en', enable_mkldnn=False, ocr_version='PP-OCRv4')
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(PokemonCardOCR, cls).__new__(cls)
+            cls._instance._initialize()
+        return cls._instance
 
+    def _initialize(self):
+        """
+        Initialize the PaddleOCR engine with mobile-optimized settings.
+        """
+        print("Initializing PokemonCardOCR engine...")
+        # Mobile Optimization Strategy:
+        # 1. use_textline_orientation=False: We trust our rectifier; skipping angle check saves time.
+        # 2. ocr_version='PP-OCRv4': Forces lightweight Mobile models.
+        # 3. enable_mkldnn=False: Avoids Windows compatibility issues.
+        self.ocr = PaddleOCR(
+            use_textline_orientation=False, 
+            lang='en', 
+            enable_mkldnn=False, 
+            ocr_version='PP-OCRv4'
+        )
 
+        self.warmup()
 
+    def warmup(self):
+        """
+        Run a dummy inference to load models into memory.
+        """
+        print("Warming up OCR engine...")
+        dummy_img = np.zeros((100, 300, 3), dtype=np.uint8)
+        try:
+            self.ocr.predict(dummy_img)
+            print("OCR engine ready.")
+        except Exception as e:
+            print(f"Warmup warning: {e}")
 
-
-
-
-
-
-def preprocess_image(image):
-    """
-    Converts to grayscale and increases contrast to help OCR.
-    """
-    if image is None:
-        return None
+    def preprocess_image(self, image):
+        """
+        Applies bilateral filtering and padding for optimal OCR accuracy.
+        """
+        if image is None:
+            return None
+            
+        # Convert to Grayscale
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         
-    # Convert to Grayscale
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    
-    # Increase Contrast using CLAHE (Contrast Limited Adaptive Histogram Equalization)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-    contrast = clahe.apply(gray)
-    
-    # Alternative: Simple linear contrast
-    # alpha = 1.5 # Contrast control (1.0-3.0)
-    # beta = 0 # Brightness control (0-100)
-    # contrast = cv2.convertScaleAbs(gray, alpha=alpha, beta=beta)
-    
-    # Binarization (Optional, sometimes Paddle prefers raw gray or color)
-    # ret, thresh = cv2.threshold(contrast, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    # return thresh
-    
-    # Bilateral Filter (Noise Reduction while keeping edges)
-    # d=9, sigmaColor=75, sigmaSpace=75
-    contrast = cv2.bilateralFilter(contrast, 9, 75, 75)
-    
-    # Add Padding (Breathing room for OCR)
-    # 5px white border
-    contrast = cv2.copyMakeBorder(contrast, 5, 5, 5, 5, cv2.BORDER_CONSTANT, value=[255, 255, 255])
-    
-    # Convert back to BGR for PaddleOCR which expects 3 channels
-    contrast_bgr = cv2.cvtColor(contrast, cv2.COLOR_GRAY2BGR)
-    return contrast_bgr
-
-
-
-def clean_card_number(text):
-    """
-    Extracts patterns like '015/198' using regex.
-    """
-    if not text:
-        return ""
+        # Contrast Enhancement (CLAHE)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        contrast = clahe.apply(gray)
         
-    # Look for digits/digits pattern
-    match = re.search(r'(\d+)\s*/\s*(\d+)', text)
-    if match:
-        return f"{match.group(1)}/{match.group(2)}"
-    
-    # Fallback: just return the text if no fraction found, or clean special chars
-    # Maybe remove non-alphanumeric except /
-    return text.strip()
-
-def get_text_from_roi(roi_crop, is_number=False):
-    """
-    Runs OCR on a single crop.
-    """
-    if roi_crop is None:
-        return ""
+        # Bilateral Filter (Noise Reduction while keeping edges)
+        contrast = cv2.bilateralFilter(contrast, 9, 75, 75)
         
-    # Preprocess
-    processed_img = preprocess_image(roi_crop)
-    
-    # Run PaddleOCR
-    # Optimize: det=False, cls=False to skip detection and angle class if crop is good.
-    # Run PaddleOCR
-    # Optimize: det=False is NOT supported in PaddleOCR v3.3.3 wrapper.
-    # Fallback to standard predict() but using Mobile models via init config.
-    try:
-        result = ocr.predict(processed_img)
-    except TypeError:
-         # Fallback just in case
-         result = ocr.ocr(processed_img)
-
-
-
-
-    # print(f"DEBUG Result: {result}", flush=True)
-    # import sys; sys.exit(0)
-    
-    if result and isinstance(result, list) and len(result) > 0:
-        res = result[0]
+        # Add Padding (Breathing room for OCR)
+        contrast = cv2.copyMakeBorder(contrast, 5, 5, 5, 5, cv2.BORDER_CONSTANT, value=[255, 255, 255])
         
-        # New Paddlex Structure (Dict)
-        if isinstance(res, dict) and 'rec_texts' in res:
-             texts = res['rec_texts']
-             # You could filter by 'rec_scores' here if needed
-             full_text = " ".join(texts)
-             if is_number:
-                 return clean_card_number(full_text)
-             return full_text
-             
-        # Old PaddleOCR Structure (List of lists)
-        if isinstance(res, list):
-            texts = []
-            for line in res:
-                 # line structure: [text, confidence] when det=False
-                 if len(line) >= 2:
-                     text_content = line[0]
-                     confidence = line[1]
+        # Convert back to BGR
+        contrast_bgr = cv2.cvtColor(contrast, cv2.COLOR_GRAY2BGR)
+        return contrast_bgr
+
+    def clean_card_number(self, text):
+        if not text:
+            return ""
+        match = re.search(r'(\d+)\s*/\s*(\d+)', text)
+        if match:
+            return f"{match.group(1)}/{match.group(2)}"
+        return text.strip()
+
+    def extract_text(self, roi_crop, is_number=False):
+        """
+        Main API method to get text from a cropped ROI.
+        """
+        if roi_crop is None:
+            return ""
+
+        processed_img = self.preprocess_image(roi_crop)
+        
+        try:
+            # Predict
+            result = self.ocr.predict(processed_img)
+            
+            # Parse result
+            if result and isinstance(result, list) and len(result) > 0:
+                res = result[0]
+                
+                # Handle Paddlex Dict Format
+                if isinstance(res, dict) and 'rec_texts' in res:
+                     texts = res['rec_texts']
+                     full_text = " ".join(texts)
+                     if is_number:
+                         return self.clean_card_number(full_text)
+                     return full_text
                      
-                     # Confidence Filtering
-                     if confidence < 0.90:
-                         print(f"Warning: Low confidence ({confidence:.2f}) for '{text_content}' - [FALLBACK TRIGGER]")
-                         # You might want to return None or empty string to trigger fallback
-                         # For now we just log it.
-                         
-                     texts.append(text_content)
+                # Handle Standard List Format
+                if isinstance(res, list):
+                    texts = []
+                    for line in res:
+                         if len(line) >= 2:
+                             text_content = line[0]
+                             confidence = line[1]
+                             
+                             if confidence < 0.90:
+                                 # Log warning but return what we have (or implement fallback logic here)
+                                 # print(f"Low confidence: {text_content} ({confidence:.2f})")
+                                 pass
+                                 
+                             texts.append(text_content)
+                    
+                    full_text = " ".join(texts)
+                    if is_number:
+                        return self.clean_card_number(full_text)
+                    return full_text
+                    
+        except Exception as e:
+            print(f"OCR Error: {e}")
+            return ""
             
-            full_text = " ".join(texts)
-            if is_number:
-                return clean_card_number(full_text)
-            return full_text
-
-            
-    return ""
-
-import time
+        return ""
 
 def test_ocr_service():
     """
-    Test OCR on the roi_samples directory.
+    Test harness for the PokemonCardOCR class.
     """
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     samples_dir = os.path.join(project_root, "data", "roi_samples")
     
     print(f"Testing OCR on samples in {samples_dir}...")
     
-    # Find headers and numbers
+    # Initialize Service
+    service = PokemonCardOCR()
+    
     headers = glob.glob(os.path.join(samples_dir, "*_name_header_crop.jpg"))
     numbers = glob.glob(os.path.join(samples_dir, "*_card_number_crop.jpg"))
     
@@ -169,14 +154,14 @@ def test_ocr_service():
     print("\n--- Name Headers ---")
     for img_path in headers:
         img = cv2.imread(img_path)
-        text = get_text_from_roi(img)
+        text = service.extract_text(img)
         print(f"{os.path.basename(img_path)} -> '{text}'")
         count += 1
         
     print("\n--- Card Numbers ---")
     for img_path in numbers:
         img = cv2.imread(img_path)
-        text = get_text_from_roi(img, is_number=True)
+        text = service.extract_text(img, is_number=True)
         print(f"{os.path.basename(img_path)} -> '{text}'")
         count += 1
         
@@ -187,7 +172,6 @@ def test_ocr_service():
     print(f"\nCompleted in {total_time:.4f} seconds.")
     print(f"Processed {count} ROIs.")
     print(f"Average time per ROI: {avg_time:.2f} ms")
-
 
 if __name__ == "__main__":
     test_ocr_service()
