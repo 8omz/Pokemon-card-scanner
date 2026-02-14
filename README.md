@@ -35,12 +35,34 @@ The project is built as a modular pipeline where data flows through specialized 
     *   **Logic Pruning**: Disabled `angle_classification` because the Rectifier guarantees upright images.
 3.  **Robustness**: The pipeline handles missing files, bad paths, and OCR failures without crashing, using atomic CSV writing to save progress.
 
-## 🗺 Future Roadmap (Phase 5+)
+## 🗺 Current Status & Roadmap
 
-The backend logic is ready. The next steps transition the project from a developer tool to a user product.
+### ✅ Phase 1-4: Complete (Backend Pipeline)
+The core OCR pipeline is functional with optimized performance and card matching capabilities.
 
-### Phase 5: The Visual Fail-Safe (Art Matching)
-Implement Perceptual Hashing (pHash). If OCR confidence is low, compare the art window hash against a database of known card art to find matches visually.
+### 🎯 Phase 5: Card Matching System (IN PROGRESS)
+**Status**: Functional with 20% automatic match rate
+
+**What's Working:**
+- Pokemon TCG API integration for card identification
+- Smart OCR text cleaning:
+  - Card number extraction (filters "BLK EN" garbage, extracts "054/086" pattern)
+  - Pokemon name suffix detection (handles EX, GX, V, VMAX, VSTAR)
+  - Handles concatenated suffixes ("Serperiorex" → "Serperior EX")
+- Name-based fuzzy matching with confidence scoring
+- 24 high-confidence matches from 121 processed cards
+
+**Bottleneck**: OCR accuracy on holographic/special finish cards
+- Name header ROI positioning is correct (verified via visualization)
+- Issue is text recognition quality, not ROI placement
+
+**Tools Created:**
+- `card_matcher.py` - Pokemon TCG API integration
+- `analyze_matches.py` - Batch card matching analyzer
+- `visualize_rois.py` - ROI debugging tool (shows extraction boxes on cards)
+
+### Visual Debug Example
+![Serperior Debug Extraction from rectified image](data/serperior_debug/debug_ph_0029.jpg)
 
 ### Phase 6: The Real-Time Auto-Detector
 Replace manual corner annotation with an Automatic Card Detector (OpenCV contours or YOLO) to find card edges instantly in a camera frame.
@@ -55,4 +77,4 @@ Replace manual corner annotation with an Automatic Card Detector (OpenCV contour
 
 ---
 
-*This project is a sophisticated computer vision pipeline demonstrating advanced OCR optimization, geometric transformation, and robust software architecture.*
+*This project demonstrates advanced computer vision, OCR optimization, API integration, and production-ready software architecture.*
