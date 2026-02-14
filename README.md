@@ -18,6 +18,16 @@ The project is built as a modular pipeline where data flows through specialized 
 | **OCR Service** | `ocr_service.py` | Reads text from slices. | PaddleOCR (Mobile v4) | Optimized (~1.6s/ROI) |
 | **Orchestrator**| `pipeline_manager.py`| Runs the batch process across the dataset. | `tqdm`, CSV | Production Ready |
 
+**Annotator Keybinds:**
+
+| Action | Key | Description |
+| :--- | :--- | :--- |
+| Confirm / Next | `Enter` | Validate & save |
+| Undo | `Backspace` | Remove last point |
+| Skip | `Esc` | Skip current image |
+| Quit | `Q` | End program |
+| Reset | `R` | Clear all corners |
+
 ## 💾 Data Management
 
 *   **Golden Master**: `data/manifests/dataset.csv`
