@@ -70,11 +70,19 @@ class LocalCardDatabase:
         
         # 2. If no specific match or no number, try Name only
         if not results and name_clean in self.index_name_only:
-             # If we have a number but it didn't match, maybe we can fuzzy match the number?
-             # For now, just return all name matches if specific failed? 
-             # Or strict? Let's strict for now, but fallback if number was "000/0".
              results.extend(self.index_name_only[name_clean])
              
+        # 3. Fuzzy Match Fallback
+        if not results:
+            import difflib
+            # Get all known names
+            all_names = list(self.index_name_only.keys())
+            matches = difflib.get_close_matches(name_clean, all_names, n=1, cutoff=0.6)
+            if matches:
+                best_match_name = matches[0]
+                print(f"Fuzzy matching '{name}' -> '{best_match_name}'")
+                results.extend(self.index_name_only[best_match_name])
+
         return results
 
 if __name__ == "__main__":
