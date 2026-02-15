@@ -21,8 +21,9 @@ except ImportError:
         return iterable
 
 class CardPipeline:
-    def __init__(self, output_dir="data/pipeline_output"):
+    def __init__(self, output_dir="data/pipeline_output", ocr_engine_type="hybrid"):
         self.output_dir = output_dir
+        self.ocr_engine_type = ocr_engine_type
         
         # Ensure output directory exists
         if not os.path.exists(self.output_dir):
@@ -75,10 +76,10 @@ class CardPipeline:
             
             # 4. OCR
             # Name
-            name_text = self.ocr_engine.extract_text(crops.get('name_header'))
+            name_text = self.ocr_engine.extract_text(crops.get('name_header'), engine=self.ocr_engine_type)
             
             # Number
-            number_text = self.ocr_engine.extract_text(crops.get('card_number'), is_number=True)
+            number_text = self.ocr_engine.extract_text(crops.get('card_number'), is_number=True, engine=self.ocr_engine_type)
             
             # 5. Populate Result
             result["name"] = name_text
@@ -136,15 +137,42 @@ class CardPipeline:
                 image_path = os.path.normpath(raw_path)
                 
                 # Get corners
+                corners = None
                 try:
-                    corners = [
-                        [float(row['corner_tl_x']), float(row['corner_tl_y'])],
-                        [float(row['corner_tr_x']), float(row['corner_tr_y'])],
-                        [float(row['corner_br_x']), float(row['corner_br_y'])],
-                        [float(row['corner_bl_x']), float(row['corner_bl_y'])]
-                    ]
+                    # Check if corners exist in row and are valid numbers
+                    if all(k in row and row[k] for k in ['corner_tl_x', 'corner_tl_y', 'corner_tr_x', 'corner_tr_y', 'corner_br_x', 'corner_br_y', 'corner_bl_x', 'corner_bl_y']):
+                        corners = [
+                            [float(row['corner_tl_x']), float(row['corner_tl_y'])],
+                            [float(row['corner_tr_x']), float(row['corner_tr_y'])],
+                            [float(row['corner_br_x']), float(row['corner_br_y'])],
+                            [float(row['corner_bl_x']), float(row['corner_bl_y'])]
+                        ]
                 except (ValueError, KeyError):
-                    print(f"Skipping {image_id}: Invalid corners")
+                    corners = None
+                
+                # Auto-Detection Fallback
+                if corners is None:
+                    # Initialize detector on demand or in __init__?
+                    # Better to do it once. Let's assume self.detector exists.
+                    if not hasattr(self, 'detector'):
+                        from detector import CardDetector
+                        self.detector = CardDetector()
+                    
+                    if os.path.exists(image_path):
+                         # We need to read the image here to detect
+                         # process_image reads it again. 
+                         # Optimization: read once.
+                         # But process_image interface takes path.
+                         # Let's read, detect, pass corners.
+                         temp_img = cv2.imread(image_path)
+                         if temp_img is not None:
+                             detected_corners, _ = self.detector.detect_card(temp_img)
+                             if detected_corners is not None:
+                                 corners = detected_corners.tolist()
+                                 # print(f"  Auto-detected corners for {image_id}")
+                    
+                if corners is None:
+                    print(f"Skipping {image_id}: No corners and auto-detection failed")
                     continue
                 
                 # Run Pipeline
