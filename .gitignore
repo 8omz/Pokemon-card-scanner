@@ -5,6 +5,23 @@ data/qa/
 data/*/*.jpg
 data/*/*.png
 
+# Ignore large datasets
+cards/
+data/
+
+# Ignore debug and test outputs
+data/roi_debug/
+data/pipeline_output/*test*.txt
+data/pipeline_output/*debug*.txt
+data/pipeline_output/api_*.txt
+
+# Ignore test and debug scripts
+test_*.py
+debug_*.py
+
+# Ignore environment variables (API keys)
+.env
+
 # Ignore Google Drive temporary sync folders
 .tmp.*
 *.tmp
@@ -24,3 +41,4 @@ __pycache__/
 # Ignore virtual environments (if you make one)
 venv/
 env/
+.venv/

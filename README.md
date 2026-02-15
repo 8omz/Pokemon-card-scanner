@@ -16,8 +16,35 @@ The project is built as a modular pipeline where data flows through specialized 
 | **Rectifier** | `rectifier.py` | Unwarps raw photos to a standard **600x840** geometry. | OpenCV | Critical (Foundation) |
 | **ROI Explorer** | `roi_explorer.py` | Slices the standard card into zones (Name, Number, Set). | NumPy (In-Memory) | Optimized (No Disk I/O) |
 | **OCR Service** | `ocr_service.py` | Reads text from slices. | PaddleOCR (Mobile v4) | Optimized (~1.6s/ROI) |
-| **Orchestrator**| `pipeline_manager.py`| Runs the batch process across the dataset. | `tqdm`, CSV | Production Ready |
+| **Orchestrator**| `pipeline_manager.py`| Runs the batch process across the dataset. | `tqdm`, CSV | Production Ready## Setup
 
+1.  **Install Python Dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+2.  **Install Tesseract OCR:**
+    - Windows: `scoop install tesseract` (or download installer)
+    - Ensure `tesseract` is in your system PATH.
+    - Download `eng.traineddata` (Best version) to `tessdata`.
+
+3.  **Local Card Database:**
+    - Place official TCG JSON files in `cards/en/*.json`.
+
+## Usage
+
+### 1. Run Hybrid OCR Pipeline
+Processing images -> OCR Text (Paddle + Tesseract fallback):
+```bash
+python run_pipeline_hybrid.py
+```
+
+### 2. Enrich Results
+Merging OCR text with Local Database -> Final JSON:
+```bash
+python enrich_results.py
+```
+Output: `data/enriched_results.json`
 **Annotator Keybinds:**
 
 | Action | Key | Description |
