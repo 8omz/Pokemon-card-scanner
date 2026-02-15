@@ -16,9 +16,11 @@ except ImportError:
 # Constants
 # Standard ROI definitions for 600x840 card
 ROI_DEFINITIONS = {
-    "name_header": (90, 30, 520, 80),      # OCR: Pokemon Name (widened to capture EX/GX/V/VMAX suffixes)
-    "card_number": (30, 800, 190, 840),    # OCR: Card Number (e.g. 015/086)
-    "art_window": (50, 100, 550, 450)      # Hash: Art Window (for future perceptual hashing)
+    "name_header": (90, 30, 520, 80),      # OCR: Pokemon Name
+    "card_number_bl": (30, 780, 220, 840), # OCR: Bottom Left (Standard) - Expanded Height
+    "card_number_br": (410, 780, 570, 840),# OCR: Bottom Right (Full Arts/Trainers) - Expanded Height
+    "card_number_center": (200, 780, 400, 840), # OCR: Center Bottom (Old/Special) - Expanded Height
+    "art_window": (50, 100, 550, 450)      # Hash: Art Window
 }
 
 INPUT_DIR = os.path.join(project_root, "data", "annotated", "phone")

@@ -79,7 +79,8 @@ class CardPipeline:
             name_text = self.ocr_engine.extract_text(crops.get('name_header'), engine=self.ocr_engine_type)
             
             # Number
-            number_text = self.ocr_engine.extract_text(crops.get('card_number'), is_number=True, engine=self.ocr_engine_type)
+            # Use new robust extraction method
+            number_text = self.ocr_engine.extract_text_for_number(crops, engine=self.ocr_engine_type)
             
             # 5. Populate Result
             result["name"] = name_text

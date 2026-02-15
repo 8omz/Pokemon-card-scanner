@@ -1,12 +1,19 @@
-import os
-import csv
+import re
 import cv2
 import numpy as np
-import re
-import time
-import glob
-from difflib import get_close_matches
+import os
+import sys
+import csv
 import pytesseract
+
+# Regex Patterns for Card Numbers
+# Regex Patterns for Card Numbers
+NUMBER_PATTERNS = [
+    r'\d{1,3}\s*/\s*\d{1,3}[a-zA-Z]?',       # Standard: 015/102
+    r'(?:TG|SV|SWSH|RC|XY|BW|SM|GG|BSP)\s*\d{1,3}', # Explicit Prefixes
+    r'(?:TG|SV|SWSH|RC|XY|BW|SM|GG|BSP)\s*\d{1,3}\s*/\s*\d{1,3}', # Prefix with denominator
+    r'^\d{2,3}$'                # Just digits (Strict fallback: 2-3 digits to avoid '1')
+]
 
 # Optimize environment variables for speed
 os.environ["FLAGS_use_mkldnn"] = "0"
@@ -111,6 +118,33 @@ class PokemonCardOCR:
         binary = cv2.copyMakeBorder(binary, 5, 5, 5, 5, cv2.BORDER_CONSTANT, value=[255])
         return cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
 
+    def preprocess_variants(self, image):
+        """
+        Yields (name, image) tuples for different preprocessing strategies.
+        Used for robust number extraction.
+        """
+        if image is None:
+            return
+
+        # 1. Original (Grayscale + Upscale)
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # Upscale for better Tesseract recognition on small text
+        scale = 3
+        upscaled = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        yield "normal", upscaled
+
+        # 2. Inverted (White text on dark bg -> Black on white)
+        inverted = cv2.bitwise_not(upscaled)
+        yield "inverted", inverted
+
+        # 3. Thresholded (High contrast)
+        # Simple binary threshold
+        _, thresh = cv2.threshold(upscaled, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+        yield "threshold", thresh
+        
+        # 4. Inverted Threshold
+        yield "threshold_inv", cv2.bitwise_not(thresh)
+
     def clean_pokemon_name(self, text):
         """
         Clean and normalize Pokemon names, handling special suffixes.
@@ -183,6 +217,74 @@ class PokemonCardOCR:
             return f"{card_num}/{set_total}"
         
         return ""
+
+    def extract_text_for_number(self, crops_dict, engine='tesseract'):
+        """
+        Robustly extracts card number by trying multiple ROIs and preprocessing methods.
+        Iterates through:
+          ROIs: card_number_bl, card_number_br, card_number_center
+          Variants: normal, inverted, threshold, threshold_inv
+          Configs: PSM 6, 7, 8
+        """
+        # Prioritize ROIs
+        rois_to_check = ['card_number_bl', 'card_number_br', 'card_number_center']
+        # Fallback to generic 'card_number' if present (backwards compat)
+        if 'card_number' in crops_dict and 'card_number_bl' not in crops_dict:
+             rois_to_check.insert(0, 'card_number')
+
+        best_guess = ""
+        
+        for roi_key in rois_to_check:
+            crop = crops_dict.get(roi_key)
+            if crop is None:
+                continue
+                
+            # Iterate image variants
+            for variant_name, processed_img in self.preprocess_variants(crop):
+                
+                # --- PASS 1: Strict Digits Only (Best for standard sets) ---
+                # Whitelist: Digits, /, -
+                whitelist_digits = "0123456789/-"
+                config_digits = f'--oem 3 --psm 6 -c tessedit_char_whitelist={whitelist_digits}'
+                
+                text = pytesseract.image_to_string(processed_img, config=config_digits).strip()
+                text = text.replace(' ', '')
+                # No substitutions needed for digits pass (O/I/L shouldn't exist)
+                
+                # Check for standard slash pattern 000/000
+                match = re.search(r'\d{1,3}/\d{1,3}', text)
+                if match:
+                    found_text = match.group(0)
+                    print(f"  [SUCCESS] Found number '{found_text}' in {roi_key} ({variant_name}) [DIGITS PASS]")
+                    return found_text
+
+                # --- PASS 2: Alphanumeric (For TG, SV, etc) ---
+                # Whitelist: Digits, /, -, and specific set prefix letters
+                whitelist_alpha = "0123456789/TGSHWRCVPXYBM-"
+                config_alpha = f'--oem 3 --psm 6 -c tessedit_char_whitelist={whitelist_alpha}'
+                
+                text = pytesseract.image_to_string(processed_img, config=config_alpha).strip()
+                
+                # Clean common OCR errors
+                text_upper = text.upper().replace(' ', '')
+                text_upper = text_upper.replace('O', '0').replace('I', '1').replace('L', '1')
+                
+                if text_upper and len(text_upper) < 20: 
+                        # print(f"    [DEBUG] {roi_key} ({variant_name}): '{text_upper}'")
+                        pass
+                
+                for pattern in NUMBER_PATTERNS:
+                        match = re.search(pattern, text_upper)
+                        if match:
+                            found_text = match.group(0)
+                            print(f"  [SUCCESS] Found number '{found_text}' in {roi_key} ({variant_name}) [ALPHA PASS]")
+                            return found_text
+                
+                # Store best guess if it looks kinda like a number (contains /)
+                if '/' in text_upper and len(text_upper) < 10:
+                    best_guess = text_upper
+
+        return best_guess
 
     def _ocr_raw(self, processed_img):
         """
