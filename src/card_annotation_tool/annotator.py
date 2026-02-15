@@ -43,6 +43,14 @@ max_parallel_deviation = 15 # maximum deviation from parallelism for opposite si
 min_corners_distance = 10  # minimum distance between corners to avoid overlap
 
 
+try:
+    from detector import CardDetector
+except ImportError:
+    # Fallback if running from root without package structure
+    import sys
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    from detector import CardDetector
+
 # State Management
 class SessionState:
     def __init__(self, manifest_data):
@@ -59,6 +67,9 @@ class SessionState:
         # Annotation State
         self.current_corners = [] # Stores (x, y) in ORIGINAL coordinates
         self.mouse_pos = None     # Stores (x, y) in DISPLAY coordinates (for draft lines)
+        
+        # Detector
+        self.detector = CardDetector()
 
     def load_current_image(self):
         if 0 <= self.current_index < self.total_images:
@@ -429,6 +440,7 @@ if __name__ == "__main__":
     print(" [Enter] Confirm & Save")
     print(" [BkSp]  Undo Corner")
     print(" [R]     Reset Corners")
+    print(" [A]     Auto-Detect")
     print(" [Esc]   Skip Image")
     print(" [Q]     Quit")
 
@@ -475,6 +487,16 @@ if __name__ == "__main__":
         if key == key_quit:
             print("Quitting...")
             break
+            
+        elif key == ord('a') or key == ord('A'):
+            print("Running auto-detection...")
+            corners, _ = session.detector.detect_card(session.original_image)
+            if corners is not None:
+                # Convert numpy array to list of tuples
+                session.current_corners = [(int(p[0]), int(p[1])) for p in corners]
+                print(f"Auto-detected corners: {session.current_corners}")
+            else:
+                print("Auto-detection failed for this image.")
             
         elif key == key_skip:
             print("Skipping image...")
