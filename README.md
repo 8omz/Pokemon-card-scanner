@@ -1,7 +1,14 @@
 # RotomCV: Computer Vision Pokemon Card Scanner
-**Goal:** Build a production-grade system to digitize physical Pokemon cards from raw photos into structured data.
+**Goal:** Build a production-grade Computer Vision Pipeline to digitize physical Pokemon cards from raw photos into structured data.
 
-**Current State:** Phase 4 (Batch Processing) Complete. The backend logic is fully functional, optimized, and verified.
+**Current State:** Phase 5 (Database Integration) Complete.
+
+## Features
+-   **Computer Vision Pipeline**: Automated rectification and cropping of card zones to a standardized 600x840 "Digital Twin".
+-   **Hybrid OCR Engine**: Combines PaddleOCR (v4 Mobile) and Tesseract for maximum accuracy on card names and numbers.
+-   **MongoDB Integration**: Scalable backend storing 20,000+ cards and scan logs, enabling real-time lookups.
+-   **Smart Matching**: Fuzzy logic identifies cards even with partial OCR errors (e.g. "Serperiorex" -> "Serperior EX").
+-   **Ground Truth Annotator**: Custom GUI for creating training data and validating crops.
 
 ## 🏗 Core Architecture
 The project is built as a modular pipeline where data flows through specialized services in `src/rotomcv/`:
@@ -12,7 +19,8 @@ The project is built as a modular pipeline where data flows through specialized 
 | **Rectifier** | `rectifier.py` | Unwarps raw photos to a standard 600x840 geometry. | OpenCV | Critical (Foundation) |
 | **ROI Explorer** | `roi_explorer.py` | Slices the standard card into zones (Name, Number, Set). | NumPy (In-Memory) | Optimized (No Disk I/O) |
 | **OCR Service** | `ocr_service.py` | Reads text from slices. | PaddleOCR (Mobile v4) | Optimized (~1.6s/ROI) |
-| **Orchestrator** | `pipeline_manager.py` | Runs the batch process across the dataset. | tqdm, CSV | Production Ready |
+| **Database** | `db_client.py` | Manages card data and scan logs. | MongoDB + PyMongo | **New!** (Scalable) |
+| **Orchestrator** | `pipeline_manager.py` | Runs the batch process across the dataset. | tqdm, CSV, MongoDB | Production Ready |
 
 ## Setup
 1.  **Install Python Dependencies:**
@@ -23,17 +31,19 @@ The project is built as a modular pipeline where data flows through specialized 
     -   Windows: `scoop install tesseract` (or download installer)
     -   Ensure `tesseract` is in your system PATH.
     -   Download `eng.traineddata` (Best version) to `tessdata`.
-3.  **Local Card Database:**
-    -   Place official TCG JSON files in `cards/en/*.json`.
+3.  **MongoDB Setup:**
+    -   Install MongoDB Community Edition.
+    -   Ensure it is running on `localhost:27017` (or set `MONGO_URI` in `.env`).
+    -   Run migration execution: `python src/rotomcv/ingest_cards.py`
 
 ## Usage
 ### 1. Run Hybrid OCR Pipeline
-Processing images -> OCR Text (Paddle + Tesseract fallback):
+Processing images -> OCR Text -> MongoDB Log:
 ```bash
-python run_pipeline.py
+python src/rotomcv/pipeline_manager.py
 ```
 
-### 2. Enrich Results
+### 2. Enrich & Match Results (Legacy)
 Merging OCR text with Local Database -> Final JSON:
 ```bash
 python enrich_results.py
@@ -52,56 +62,29 @@ Output: `data/enriched_results.json`
 ## 💾 Data Management
 -   **Golden Master:** `data/manifests/dataset.csv`
     -   The source of truth for file paths and verified corner coordinates.
--   **Raw Images:** Google Drive Folder
--   **Pipeline Output:** `data/pipeline_output/pipeline_results.csv`
-    -   The results of the batch run, containing extracted data and confidence flags.
-
-## 🚀 Technical Wins
--   **Original-Space Truth:** We map everything back to the raw image logic but operate in a standardized "Digital Twin" space (600x840).
--   **Latency Optimization:**
-    -   **Mobile Models:** Switched to PP-OCRv4 Mobile for a ~30% speedup.
-    -   **Zero-Copy:** `roi_explorer` passes NumPy arrays directly to OCR without saving to disk.
-    -   **Logic Pruning:** Disabled angle_classification because the Rectifier guarantees upright images.
--   **Robustness:** The pipeline handles missing files, bad paths, and OCR failures without crashing, using atomic CSV writing to save progress.
+-   **Pipeline Output:**
+    -   **CSV:** `data/pipeline_output/pipeline_results.csv` (Atomic backup)
+    -   **MongoDB:** `rotomcv.scans` collection (Primary log)
 
 ## 🗺 Current Status & Roadmap
 
-### ✅ Phase 1-4: Complete (Backend Pipeline)
-The core OCR pipeline is functional with optimized performance and card matching capabilities.
+### ✅ Phase 1-5: Core Pipeline & Database
+The backend logic is fully functional, optimized, and verified.
+-   **Annotator**: Stable GUI for training data.
+-   **Rectifier**: Solid OpenCV foundations.
+-   **OCR**: Tuned PulseOCR + Tesseract hybrid.
+-   **MongoDB**: Migrated 20,000+ cards from flat JSON files to a local MongoDB instance.
+-   **Scan Logging**: Pipeline automatically logs results to the database.
 
-### 🎯 Phase 5: Card Matching System (IN PROGRESS)
-**Status:** Functional with 20% automatic match rate
+### 🚧 Phase 6: Automatic Detection
+Replace manual corner annotation with an Automatic Card Detector.
+-   **Current Status**: Implemented but performance is suboptimal. Needs retraining or a switch to YOLOv8.
+-   **Goal**: Find card edges instantly in a camera frame.
 
-**What's Working:**
--   Pokemon TCG API integration for card identification
--   **Smart OCR text cleaning:**
-    -   Card number extraction (filters "BLK EN" garbage, extracts "054/086" pattern)
-    -   Pokemon name suffix detection (handles EX, GX, V, VMAX, VSTAR)
-    -   Handles concatenated suffixes ("Serperiorex" → "Serperior EX")
--   Name-based fuzzy matching with confidence scoring
--   24 high-confidence matches from 121 processed cards
-
-**Bottleneck:** OCR accuracy on holographic/special finish cards
--   Name header ROI positioning is correct (verified via visualization)
--   Issue is text recognition quality, not ROI placement
-
-**Tools Created:**
--   `card_matcher.py` - Pokemon TCG API integration
--   `analyze_matches.py` - Batch card matching analyzer
--   `visualize_rois.py` - ROI debugging tool (shows extraction boxes on cards)
+### 🔮 Phase 7: The "Live" API & Frontend (Future)
+-   **FastAPI Backend**: POST /scan -> Image to JSON.
+-   **Frontend**: React/Next.js UI for point-and-scan functionality.
+-   **Collection Management**: Save scans to user "Binder" folders.
 
 ### Visual Debug Example
 ![Serperior Debug Extraction from rectified image](data/serperior_debug/debug_ph_0029.jpg)
-
-### Phase 6: The Real-Time Auto-Detector
-Replace manual corner annotation with an Automatic Card Detector (OpenCV contours or YOLO) to find card edges instantly in a camera frame.
-
-### Phase 7: The "Live" API & Frontend
--   **FastAPI Backend:** POST /scan -> Image to JSON.
--   **Frontend:** React/Next.js UI for point-and-scan functionality.
-
-### Phase 8: Collection Management
--   **Database Integration:** Save scans to "Binder" folders.
--   **Analytics:** Track collection value over time.
-
-This project demonstrates advanced computer vision, OCR optimization, API integration, and production-ready software architecture.
