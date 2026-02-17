@@ -1,7 +1,7 @@
 import csv
 import json
 import os
-from src.card_annotation_tool.local_card_db import LocalCardDatabase
+from src.rotomcv.local_card_db import LocalCardDatabase
 
 def enrich_data():
     project_root = os.path.dirname(os.path.abspath(__file__))
@@ -12,7 +12,7 @@ def enrich_data():
     print(f"Initializing Local Database from {cards_dir}...")
     db = LocalCardDatabase(cards_dir)
     
-    enriched_data = []
+    enriched_dict = {}
     
     print(f"Reading OCR results from {input_csv}...")
     with open(input_csv, 'r', encoding='utf-8') as f:
@@ -58,7 +58,10 @@ def enrich_data():
                 "db_match": match_type,
                 "card_data": selected_card
             }
-            enriched_data.append(entry)
+            # Use dict to deduplicate by ID, keeping latest
+            enriched_dict[image_id] = entry
+            
+    enriched_data = list(enriched_dict.values())
             
     print(f"Writing {len(enriched_data)} enriched records to {output_json}...")
     with open(output_json, 'w', encoding='utf-8') as f:

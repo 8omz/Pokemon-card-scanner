@@ -17,9 +17,10 @@ except ImportError:
 # Standard ROI definitions for 600x840 card
 ROI_DEFINITIONS = {
     "name_header": (90, 30, 520, 80),      # OCR: Pokemon Name
-    "card_number_bl": (30, 780, 220, 840), # OCR: Bottom Left (Standard) - Expanded Height
-    "card_number_br": (410, 780, 570, 840),# OCR: Bottom Right (Full Arts/Trainers) - Expanded Height
-    "card_number_center": (200, 780, 400, 840), # OCR: Center Bottom (Old/Special) - Expanded Height
+    "card_number_bl": (15, 760, 260, 840), # OCR: Bottom Left - Expanded boundaries
+    "card_number_br": (380, 760, 585, 840),# OCR: Bottom Right - Expanded boundaries
+    "card_number_center": (180, 760, 420, 840), # OCR: Center Bottom - Expanded boundaries
+    "card_bottom_full": (0, 740, 600, 840), # OCR: Full Bottom Scan for Paddle
     "art_window": (50, 100, 550, 450)      # Hash: Art Window
 }
 

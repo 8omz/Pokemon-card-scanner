@@ -4,27 +4,35 @@ data/annotated/
 data/qa/
 data/*/*.jpg
 data/*/*.png
+data/*.csv
+!data/manifests/dataset.csv
 
 # Ignore large datasets
 cards/
 data/
+# Exception for manifests if they are metadata
+!data/manifests/
 
 # Ignore debug and test outputs
 data/roi_debug/
-data/pipeline_output/*test*.txt
-data/pipeline_output/*debug*.txt
-data/pipeline_output/api_*.txt
+data/pipeline_output/
+data/pipeline_output_hybrid/
+data/reconstructed_crops/
+data/serperior_debug/
 
 # Ignore test and debug scripts
 test_*.py
 debug_*.py
+analyze_project_stats.py
 
 # Ignore environment variables (API keys)
 .env
+.env.local
 
 # Ignore Google Drive temporary sync folders
 .tmp.*
 *.tmp
+.stfolder/
 
 # Ignore Python caches and environment files
 __pycache__/
@@ -37,8 +45,9 @@ __pycache__/
 .vscode/
 .idea/
 .DS_Store
+Thumbs.db
 
-# Ignore virtual environments (if you make one)
+# Ignore virtual environments
 venv/
 env/
 .venv/

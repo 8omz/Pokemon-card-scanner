@@ -7,11 +7,11 @@ import numpy as np
 
 # configuration and constants 
 # paths
-# Get the absolute path to the project root (assuming this script is in src/card_annotation_tool)
+# Get the absolute path to the project root (assuming this script is in src/rotomcv)
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(current_dir))
 
-dataset_csv_path = os.path.join(project_root, "data", "manifests", "dataset.csv")
+dataset_csv_path = os.path.join(project_root, "data", "manifests", "dataset copy.csv")
 overlay_dir_path = os.path.join(project_root, "data", "annotated", "phone")
 annotation_log_path = os.path.join(project_root, "data", "manifests", "annotation_log.csv")
 

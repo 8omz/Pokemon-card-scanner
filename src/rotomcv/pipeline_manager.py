@@ -5,6 +5,7 @@ import glob
 import time
 import sys
 import numpy as np
+from datetime import datetime
 
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -12,6 +13,8 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from rectifier import unwarp_card
 from roi_explorer import get_roi_crops
 from ocr_service import PokemonCardOCR
+from db_client import RotomDB
+
 try:
     from tqdm import tqdm
 except ImportError:
@@ -31,6 +34,9 @@ class CardPipeline:
             
         # Initialize OCR Engine (Warmup happens here)
         self.ocr_engine = PokemonCardOCR()
+        
+        # Initialize DB Client
+        self.db = RotomDB()
         
     def process_image(self, image_path, corners=None):
         """
@@ -63,10 +69,7 @@ class CardPipeline:
                 rectified_img = unwarp_card(image, np.array(corners, dtype=np.float32))
             else:
                 # If no corners provided, assume image is already rectified (e.g. from debug folder)
-                # Or skip. For this pipeline, we will assume we have corners from the log.
-                # If we are processing raw images without corners, we would need a detector here.
-                # For now, let's assume valid corners are passed.
-                rectified_img = image # CAUTION: Only if already rect.
+                rectified_img = image 
             
             if rectified_img is None:
                  raise ValueError("Rectification failed")
@@ -79,7 +82,6 @@ class CardPipeline:
             name_text = self.ocr_engine.extract_text(crops.get('name_header'), engine=self.ocr_engine_type)
             
             # Number
-            # Use new robust extraction method
             number_text = self.ocr_engine.extract_text_for_number(crops, engine=self.ocr_engine_type)
             
             # 5. Populate Result
@@ -87,9 +89,7 @@ class CardPipeline:
             result["number"] = number_text
             result["status"] = "success"
             
-            # Simple Confidence Check (Placeholder logic)
-            # Real confidence usually comes from the OCR engine, but we abstracted it.
-            # We can flag if name is empty or number pattern looks wrong.
+            # Simple Confidence Check 
             if not name_text or len(name_text) < 3:
                 result["confidence_flag"] = True
                 
@@ -102,7 +102,7 @@ class CardPipeline:
     def run_batch(self, dataset_csv_path, output_csv_name="pipeline_results.csv"):
         """
         Runs the pipeline on a batch of images defined in dataset.csv.
-        Atomic writing to CSV.
+        Atomic writing to CSV AND MongoDB.
         """
         output_csv_path = os.path.join(self.output_dir, output_csv_name)
         
@@ -110,10 +110,8 @@ class CardPipeline:
             print(f"Error: Dataset not found at {dataset_csv_path}")
             return
 
-        # Prepare Output CSV
+        # Prepare Output CSV (Legacy support)
         fieldnames = ["filename", "image_id", "status", "name", "number", "confidence_flag"]
-        
-        # Write header if new file
         write_header = not os.path.exists(output_csv_path)
         
         # Read dataset first to get total count for tqdm
@@ -122,7 +120,7 @@ class CardPipeline:
             reader = csv.DictReader(f)
             rows = list(reader)
             
-        print(f"Found {len(rows)} entries in dataset.")
+        print(f"Found {len(rows)} entries in dataset. Processing to MongoDB & CSV...")
         
         with open(output_csv_path, 'a', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -140,7 +138,6 @@ class CardPipeline:
                 # Get corners
                 corners = None
                 try:
-                    # Check if corners exist in row and are valid numbers
                     if all(k in row and row[k] for k in ['corner_tl_x', 'corner_tl_y', 'corner_tr_x', 'corner_tr_y', 'corner_br_x', 'corner_br_y', 'corner_bl_x', 'corner_bl_y']):
                         corners = [
                             [float(row['corner_tl_x']), float(row['corner_tl_y'])],
@@ -151,33 +148,32 @@ class CardPipeline:
                 except (ValueError, KeyError):
                     corners = None
                 
-                # Auto-Detection Fallback
                 if corners is None:
-                    # Initialize detector on demand or in __init__?
-                    # Better to do it once. Let's assume self.detector exists.
+                    # Auto-Detection Fallback
                     if not hasattr(self, 'detector'):
-                        from detector import CardDetector
-                        self.detector = CardDetector()
+                        try:
+                            from detector import CardDetector
+                            self.detector = CardDetector()
+                        except ImportError:
+                            self.detector = None
                     
-                    if os.path.exists(image_path):
-                         # We need to read the image here to detect
-                         # process_image reads it again. 
-                         # Optimization: read once.
-                         # But process_image interface takes path.
-                         # Let's read, detect, pass corners.
+                    if self.detector and os.path.exists(image_path):
                          temp_img = cv2.imread(image_path)
                          if temp_img is not None:
                              detected_corners, _ = self.detector.detect_card(temp_img)
                              if detected_corners is not None:
                                  corners = detected_corners.tolist()
-                                 # print(f"  Auto-detected corners for {image_id}")
-                    
+                                 
                 if corners is None:
-                    print(f"Skipping {image_id}: No corners and auto-detection failed")
-                    continue
-                
-                # Run Pipeline
-                if not os.path.exists(image_path):
+                    result = {
+                        "filename": os.path.basename(image_path),
+                        "image_id": image_id,
+                        "status": "skipped_no_corners",
+                        "name": "",
+                        "number": "",
+                        "confidence_flag": True
+                    }
+                elif not os.path.exists(image_path):
                      result = {
                         "filename": os.path.basename(image_path),
                         "image_id": image_id,
@@ -188,11 +184,30 @@ class CardPipeline:
                      }
                 else:
                     result = self.process_image(image_path, corners)
-                    result["image_id"] = image_id # Add ID to result
+                    result["image_id"] = image_id 
                 
-                # Atomic Write
+                # 1. Log to CSV (Legacy)
                 writer.writerow(result)
                 f.flush()
+                
+                # 2. Log to MongoDB (New)
+                try:
+                    # Create a copy for DB to avoid mutating the CSV dict if we add objects
+                    db_entry = result.copy()
+                    db_entry["timestamp"] = datetime.now()
+                    # Store corners if successful for debugging?
+                    if corners:
+                        db_entry["corners"] = corners
+                    
+                    # Store ocr data structure
+                    db_entry["ocr_data"] = {
+                        "name": result["name"],
+                        "number": result["number"]
+                    }
+                    
+                    self.db.log_scan(db_entry)
+                except Exception as e:
+                    print(f"MongoDB Log Error: {e}")
 
 if __name__ == "__main__":
     # Test Block
@@ -201,4 +216,3 @@ if __name__ == "__main__":
     
     pipeline = CardPipeline()
     pipeline.run_batch(dataset_csv)
-

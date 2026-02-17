@@ -5,11 +5,11 @@ import time
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from src.card_annotation_tool.pipeline_manager import CardPipeline
+from src.rotomcv.pipeline_manager import CardPipeline
 
 if __name__ == "__main__":
     project_root = os.path.dirname(os.path.abspath(__file__))
-    dataset_csv = os.path.join(project_root, "data", "manifests", "dataset.csv")
+    dataset_csv = os.path.join(project_root, "data", "manifests", "dataset copy.csv")
     
     # Use a separate output directory for hybrid results
     output_dir = os.path.join(project_root, "data", "pipeline_output_hybrid")

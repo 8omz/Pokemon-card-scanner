@@ -5,11 +5,13 @@ import os
 import sys
 import csv
 import pytesseract
+from difflib import get_close_matches
 
 # Regex Patterns for Card Numbers
 # Regex Patterns for Card Numbers
 NUMBER_PATTERNS = [
     r'\d{1,3}\s*/\s*\d{1,3}[a-zA-Z]?',       # Standard: 015/102
+    r'\d{1,3}\s*7\s*\d{1,3}',                # Slash read as 7: 0547086
     r'(?:TG|SV|SWSH|RC|XY|BW|SM|GG|BSP)\s*\d{1,3}', # Explicit Prefixes
     r'(?:TG|SV|SWSH|RC|XY|BW|SM|GG|BSP)\s*\d{1,3}\s*/\s*\d{1,3}', # Prefix with denominator
     r'^\d{2,3}$'                # Just digits (Strict fallback: 2-3 digits to avoid '1')
@@ -194,29 +196,40 @@ class PokemonCardOCR:
         
         return text
     
-    def clean_card_number(self, text):
+
+
+    def _apply_italic_fix(self, text):
         """
-        Extract ONLY the card number pattern (e.g., "054/086") from OCR text.
+        Heuristic: Fix italic '1' read as '7'
+        If numerator > denominator + 20 and numerator starts with '7', replace '7' with '1'.
         """
-        if not text:
-            return ""
-        
-        text = text.replace('O', '0').replace('o', '0')
-        text = text.replace('l', '1').replace('I', '1')
-        
-        match = re.search(r'(\d{1,3})\s*/\s*(\d{1,3})', text)
+        match = re.search(r'(\d{1,3})/(\d{1,3})', text)
         if match:
-            card_num = match.group(1).zfill(3)
-            set_total = match.group(2)
-            return f"{card_num}/{set_total}"
-        
-        digits = re.findall(r'\d+', text)
-        if len(digits) >= 2:
-            card_num = digits[0].zfill(3)
-            set_total = digits[1]
-            return f"{card_num}/{set_total}"
-        
-        return ""
+            num_str = match.group(1)
+            denom_str = match.group(2)
+            try:
+                num = int(num_str)
+                denom = int(denom_str)
+                if num > denom + 20 and num_str.startswith('7'):
+                    corrected_num_str = '1' + num_str[1:]
+                    print(f"  [FIX] Correcting italic 7->1: {num_str} -> {corrected_num_str}")
+                    return f"{corrected_num_str}/{denom_str}"
+            except ValueError:
+                pass
+        return text
+
+    def _apply_slash_fix(self, text):
+        """
+        Heuristic: Fix '7' read as '/' (e.g. 0547086 -> 054/086)
+        """
+        # Match 3 digits, 7, 3 digits (most common) or 2-3 digits
+        match = re.search(r'(\d{1,3})\s*7\s*(\d{1,3})', text)
+        if match:
+             # Check if the "7" is likely a separator (middle of string, surrounded by digits)
+             # And the numbers look like valid card numbers (e.g. denominator > numerator often, but not always)
+             # For now, just apply it if it matches the pattern explicitly
+             return f"{match.group(1)}/{match.group(2)}"
+        return text
 
     def extract_text_for_number(self, crops_dict, engine='tesseract'):
         """
@@ -227,7 +240,7 @@ class PokemonCardOCR:
           Configs: PSM 6, 7, 8
         """
         # Prioritize ROIs
-        rois_to_check = ['card_number_bl', 'card_number_br', 'card_number_center']
+        rois_to_check = ['card_bottom_full', 'card_number_bl', 'card_number_br', 'card_number_center']
         # Fallback to generic 'card_number' if present (backwards compat)
         if 'card_number' in crops_dict and 'card_number_bl' not in crops_dict:
              rois_to_check.insert(0, 'card_number')
@@ -242,6 +255,62 @@ class PokemonCardOCR:
             # Iterate image variants
             for variant_name, processed_img in self.preprocess_variants(crop):
                 
+                # --- PASS 0: PaddleOCR (Detection + Recognition) ---
+                # Better for shifted text or mixed layouts
+                if engine in ['paddle', 'hybrid']:
+                    try:
+                        # Paddle expects RGB usually, but works on Gray/Binary IF converted to 3 channels
+                        paddle_img = processed_img
+                        if len(processed_img.shape) == 2:
+                             paddle_img = cv2.cvtColor(processed_img, cv2.COLOR_GRAY2BGR)
+                        elif len(processed_img.shape) == 3 and processed_img.shape[2] == 1:
+                             paddle_img = cv2.cvtColor(processed_img, cv2.COLOR_GRAY2BGR)
+
+                        # predict returns [[[[x,y]..], (text, conf)], ...]
+                        # OR dictionary for some versions
+                        result = self.ocr.ocr(paddle_img)
+                        parsed_lines = []
+                        
+                        if result:
+                            # Handle List of Lists (Standard)
+                            if isinstance(result, list) and len(result) > 0:
+                                # Check if it is a list of lines [ [[box], [text,conf]], ... ]
+                                # Usually result[0] is the list of lines for the first image
+                                lines = result[0]
+                                if isinstance(lines, list):
+                                    for line in lines:
+                                        if isinstance(line, list) and len(line) >= 2:
+                                            # text is at line[1][0]
+                                            annot = line[1]
+                                            if (isinstance(annot, tuple) or isinstance(annot, list)) and len(annot) >= 1:
+                                                text = annot[0]
+                                                parsed_lines.append(text)
+                                elif isinstance(lines, dict):
+                                     pass 
+                            
+                            # Handle Dict (Paddlex) - rare but possible
+                            if isinstance(result, dict) or (isinstance(result, list) and len(result) > 0 and isinstance(result[0], dict)):
+                                res_dict = result if isinstance(result, dict) else result[0]
+                                if 'rec_texts' in res_dict:
+                                    parsed_lines.extend(res_dict['rec_texts'])
+
+                        for text in parsed_lines:
+                                # Clean & Validate
+                                text_clean = text.replace(' ', '').upper()
+                                text_clean = text_clean.replace('O', '0').replace('I', '1').replace('L', '1')
+                                
+                                # Check against patterns
+                                for pattern in NUMBER_PATTERNS:
+                                    # Use search
+                                    match = re.search(pattern, text_clean)
+                                    if match:
+                                        found_text = match.group(0)
+                                        found_text = self._apply_slash_fix(found_text)
+                                        found_text = self._apply_italic_fix(found_text)
+                                        return found_text
+                    except Exception as e:
+                        print(f"Paddle Error: {e}")
+
                 # --- PASS 1: Strict Digits Only (Best for standard sets) ---
                 # Whitelist: Digits, /, -
                 whitelist_digits = "0123456789/-"
@@ -251,12 +320,14 @@ class PokemonCardOCR:
                 text = text.replace(' ', '')
                 # No substitutions needed for digits pass (O/I/L shouldn't exist)
                 
-                # Check for standard slash pattern 000/000
-                match = re.search(r'\d{1,3}/\d{1,3}', text)
-                if match:
-                    found_text = match.group(0)
-                    print(f"  [SUCCESS] Found number '{found_text}' in {roi_key} ({variant_name}) [DIGITS PASS]")
-                    return found_text
+                # Check against patterns (Standardized)
+                for pattern in NUMBER_PATTERNS:
+                    match = re.search(pattern, text)
+                    if match:
+                        found_text = match.group(0)
+                        found_text = self._apply_slash_fix(found_text)
+                        found_text = self._apply_italic_fix(found_text)
+                        return found_text
 
                 # --- PASS 2: Alphanumeric (For TG, SV, etc) ---
                 # Whitelist: Digits, /, -, and specific set prefix letters
@@ -277,7 +348,8 @@ class PokemonCardOCR:
                         match = re.search(pattern, text_upper)
                         if match:
                             found_text = match.group(0)
-                            print(f"  [SUCCESS] Found number '{found_text}' in {roi_key} ({variant_name}) [ALPHA PASS]")
+                            found_text = self._apply_slash_fix(found_text)
+                            found_text = self._apply_italic_fix(found_text)
                             return found_text
                 
                 # Store best guess if it looks kinda like a number (contains /)
@@ -564,4 +636,7 @@ def test_ocr_service():
     print(f"Average time per ROI: {avg_time:.2f} ms")
 
 if __name__ == "__main__":
-    test_ocr_service()
+    if os.path.exists(os.path.join("data", "roi_samples")):
+        test_ocr_service()
+    else:
+        print("No samples found in data/roi_samples. Skipping test.")
